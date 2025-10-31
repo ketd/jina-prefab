@@ -1,14 +1,14 @@
 [project]
-name = "hello-world-prefab"
+name = "jina-ai-prefab"
 version = "0.1.2"
-description = "一个简单的 Hello World 示例预制件，展示如何创建可被 AI 调用的函数"
+description = "使用 Jina AI 的 API 进行网络搜索和 URL 内容读取的预制件"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
     { name = "Your Name", email = "your.email@example.com" }
 ]
-keywords = ["ai", "prefab", "template", "hello-world", "example"]
+keywords = ["ai", "jina", "search", "web-reader", "content-extraction"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -19,8 +19,9 @@ classifiers = [
 ]
 
 # 运行时依赖（会被打包到最终产物中）
-# 这个示例预制件不需要额外的依赖
-dependencies = []
+dependencies = [
+    "requests>=2.31.0"
+]
 
 [project.optional-dependencies]
 # 开发和测试依赖（不会被打包）
@@ -75,7 +76,10 @@ exclude = [".git", "__pycache__", ".venv", "build", "dist"]
 
 [dependency-groups]
 dev = [
+    "flake8>=7.3.0",
     "isort>=7.0.0",
     "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
     "tomli>=2.3.0",
 ]

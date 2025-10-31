@@ -1,283 +1,172 @@
 """
-预制件核心逻辑模块
+Jina AI 预制件
 
-这是一个示例预制件，展示了如何创建可被 AI 调用的函数。
-所有暴露给 AI 的函数都必须在此文件中定义。
+使用 Jina AI 的 API 实现网络搜索和 URL 内容读取功能。
 
-📁 文件路径约定（重要！）：
-- 输入文件路径：data/inputs/{files.key}/
-  例如：manifest 中 files.input → data/inputs/input/
-  例如：manifest 中 files.video → data/inputs/video/
-- 输出文件：data/outputs/
-- Gateway 自动下载文件到 inputs，自动上传 outputs 中的文件
+功能：
+- jina_search: 使用 Jina Search API 进行网络搜索
+- jina_read_url: 使用 Jina Reader API 读取 URL 内容
 
-⚠️ 常见错误：
-- ❌ 错误：DATA_INPUTS = Path("data/inputs")
-- ✅ 正确：DATA_INPUTS = Path("data/inputs/input")  # 如果 manifest 中 key 是 "input"
-
-📖 完整开发指南请查看：PREFAB_GUIDE.md
-
-🌊 流式函数说明：
-- 使用生成器函数（yield）实现流式返回
-- 在 manifest 中设置 "streaming": true
-- 适用于实时输出、进度报告、大数据处理等场景
+完整开发指南请查看：AGENTS.md
 """
 
 import os
-import time
-from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Dict
 
-# 固定路径常量
-# 文件组按 manifest 中的 key 组织（这里是 "input"）
-# 如果你的 manifest 中使用不同的 key，请相应修改路径
-# 例如：files.video → Path("data/inputs/video")
-DATA_INPUTS = Path("data/inputs/input")
-DATA_OUTPUTS = Path("data/outputs")
+import requests
 
 
-def greet(name: str = "World") -> dict:
+def jina_search(
+    query: str,
+    max_results: int = 10,
+    include_content: bool = False
+) -> dict:
     """
-    向用户问候
+    使用 Jina AI 进行网络搜索
 
-    这是一个简单的示例函数，展示了预制件函数的基本结构。
+    这个函数使用 Jina Search API 搜索网络内容，返回相关的搜索结果。
 
     Args:
-        name: 要问候的名字，默认为 "World"
+        query: 搜索关键词或问题
+        max_results: 返回的最大结果数量，默认 10
+        include_content: 是否包含页面内容（会消耗更多 tokens），默认 False
 
     Returns:
-        包含问候结果的字典
+        包含搜索结果的字典，格式如下：
+        {
+            "success": True,
+            "query": "搜索关键词",
+            "results": [
+                {
+                    "title": "页面标题",
+                    "url": "页面URL",
+                    "description": "页面描述",
+                    "content": "页面内容（可选）"
+                }
+            ],
+            "total_tokens": 使用的总 tokens 数
+        }
 
     Examples:
-        >>> greet()
-        {'success': True, 'message': 'Hello, World!', 'name': 'World'}
+        >>> result = jina_search(query="Python tutorial")
+        >>> print(result['results'][0]['title'])
+        'Python Tutorial - W3Schools'
 
-        >>> greet(name="Alice")
-        {'success': True, 'message': 'Hello, Alice!', 'name': 'Alice'}
+        >>> result = jina_search(query="AI news", max_results=5, include_content=True)
+        >>> print(len(result['results']))
+        5
     """
     try:
-        # 参数验证
-        if not name or not isinstance(name, str):
-            return {
-                "success": False,
-                "error": "name 参数必须是非空字符串",
-                "error_code": "INVALID_NAME"
-            }
+        # 从环境变量中获取 API Key
+        api_key = os.environ.get('JINA_API_KEY')
 
-        # 生成问候消息
-        message = f"Hello, {name}!"
-
-        return {
-            "success": True,
-            "message": message,
-            "name": name
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "error_code": "UNEXPECTED_ERROR"
-        }
-
-
-def echo(text: str) -> dict:
-    """
-    回显输入的文本
-
-    这个函数演示了基本的输入输出处理。
-
-    Args:
-        text: 要回显的文本
-
-    Returns:
-        包含回显结果的字典
-    """
-    try:
-        if not text:
-            return {
-                "success": False,
-                "error": "text 参数不能为空",
-                "error_code": "EMPTY_TEXT"
-            }
-
-        return {
-            "success": True,
-            "original": text,
-            "echo": text,
-            "length": len(text)
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "error_code": "UNEXPECTED_ERROR"
-        }
-
-
-def add_numbers(a: float, b: float) -> dict:
-    """
-    计算两个数字的和
-
-    这个函数演示了数值计算的基本模式。
-
-    Args:
-        a: 第一个数字
-        b: 第二个数字
-
-    Returns:
-        包含计算结果的字典
-    """
-    try:
-        result = a + b
-        return {
-            "success": True,
-            "a": a,
-            "b": b,
-            "sum": result
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "error_code": "CALCULATION_ERROR"
-        }
-
-
-def process_text_file(operation: str = "uppercase") -> dict:
-    """
-    处理文本文件（文件处理示例）
-
-    这个函数演示了文件处理方式：
-    - 文件不再作为参数传入
-    - Gateway 自动下载到 data/inputs/
-    - Prefab 自动扫描 data/inputs/
-    - 输出写入 data/outputs/
-    - Gateway 自动上传并在响应中返回文件 URL
-
-    📁 文件约定：
-    - 输入：自动扫描 data/inputs/（Gateway 已下载）
-    - 输出：写入 data/outputs/（Gateway 会自动上传）
-    - 返回值：不包含文件路径（由 Gateway 管理）
-
-    Args:
-        operation: 操作类型（uppercase, lowercase, reverse）
-
-    Returns:
-        包含处理结果的字典（不包含文件路径）
-    """
-    try:
-        # 自动扫描 data/inputs 目录
-        input_files = list(DATA_INPUTS.glob("*"))
-        if not input_files:
-            return {
-                "success": False,
-                "error": "未找到输入文件",
-                "error_code": "NO_INPUT_FILE"
-            }
-
-        # 获取第一个文件
-        input_path = input_files[0]
-
-        # 读取文件内容
-        content = input_path.read_text(encoding="utf-8")
-
-        # 执行操作
-        if operation == "uppercase":
-            result = content.upper()
-        elif operation == "lowercase":
-            result = content.lower()
-        elif operation == "reverse":
-            result = content[::-1]
-        else:
-            return {
-                "success": False,
-                "error": f"不支持的操作: {operation}",
-                "error_code": "INVALID_OPERATION"
-            }
-
-        # 确保输出目录存在
-        DATA_OUTPUTS.mkdir(parents=True, exist_ok=True)
-
-        # 写入输出文件（Gateway 会自动上传）
-        output_filename = f"processed_{input_path.name}"
-        output_path = DATA_OUTPUTS / output_filename
-        output_path.write_text(result, encoding="utf-8")
-
-        # 返回结果（不包含文件路径）
-        return {
-            "success": True,
-            "operation": operation,
-            "original_length": len(content),
-            "processed_length": len(result)
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "error_code": "PROCESSING_ERROR"
-        }
-
-
-def fetch_weather(city: str) -> dict:
-    """
-    获取指定城市的天气信息（示例函数，演示 secrets 的使用）
-
-    这个函数演示了如何在预制件中使用密钥（secrets）。
-    平台会自动将用户配置的密钥注入到环境变量中。
-
-    注意：这是一个演示函数，实际不会调用真实的天气 API。
-
-    Args:
-        city: 要查询天气的城市名称
-
-    Returns:
-        包含天气信息的字典
-
-    Examples:
-        >>> fetch_weather(city="北京")
-        {'success': True, 'city': '北京', 'temperature': 22.5, 'condition': '晴天'}
-    """
-    try:
-        # 从环境变量中获取 API Key（平台会自动注入）
-        api_key = os.environ.get('WEATHER_API_KEY')
-
-        # 验证密钥是否已配置
+        # 验证 API Key
         if not api_key:
             return {
                 "success": False,
-                "error": "未配置 WEATHER_API_KEY，请在平台上配置该密钥",
+                "error": "未配置 JINA_API_KEY，请在平台上配置该密钥",
                 "error_code": "MISSING_API_KEY"
             }
 
         # 验证参数
-        if not city or not isinstance(city, str):
+        if not query or not isinstance(query, str) or not query.strip():
             return {
                 "success": False,
-                "error": "city 参数必须是非空字符串",
-                "error_code": "INVALID_CITY"
+                "error": "query 参数必须是非空字符串",
+                "error_code": "INVALID_QUERY"
             }
 
-        # 这里是演示代码，实际应该调用真实的天气 API
-        # import requests
-        # response = requests.get(
-        #     f"https://api.weather-provider.com/current",
-        #     params={"city": city, "key": api_key}
-        # )
-        # data = response.json()
+        if not isinstance(max_results, int) or max_results <= 0:
+            return {
+                "success": False,
+                "error": "max_results 必须是大于 0 的整数",
+                "error_code": "INVALID_MAX_RESULTS"
+            }
 
-        # 演示：返回模拟数据
-        return {
-            "success": True,
-            "city": city,
-            "temperature": 22.5,
-            "condition": "晴天",
-            "note": "这是演示数据，未调用真实 API"
+        # 构建请求 URL
+        base_url = "https://s.jina.ai/"
+        params = {"q": query.strip()}
+
+        # 构建请求头
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}"
         }
 
+        # 根据 include_content 参数设置响应格式
+        if not include_content:
+            headers["X-Respond-With"] = "no-content"
+
+        # 发送请求
+        response = requests.get(base_url, params=params, headers=headers, timeout=30)
+
+        # 检查响应状态
+        if response.status_code == 401:
+            return {
+                "success": False,
+                "error": "JINA_API_KEY 无效或已过期",
+                "error_code": "INVALID_API_KEY"
+            }
+        elif response.status_code == 429:
+            return {
+                "success": False,
+                "error": "API 调用频率超限，请稍后重试",
+                "error_code": "RATE_LIMIT_EXCEEDED"
+            }
+        elif response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"API 请求失败，状态码: {response.status_code}",
+                "error_code": "API_REQUEST_FAILED",
+                "status_code": response.status_code
+            }
+
+        # 解析响应
+        data = response.json()
+
+        # 检查响应格式
+        if data.get("code") != 200:
+            return {
+                "success": False,
+                "error": f"API 返回错误: {data.get('status', 'Unknown error')}",
+                "error_code": "API_ERROR"
+            }
+
+        # 提取结果
+        results = data.get("data", [])
+
+        # 限制结果数量
+        results = results[:max_results]
+
+        # 计算总 tokens
+        total_tokens = data.get("meta", {}).get("usage", {}).get("tokens", 0)
+
+        return {
+            "success": True,
+            "query": query.strip(),
+            "results": results,
+            "total_results": len(results),
+            "total_tokens": total_tokens
+        }
+
+    except requests.exceptions.Timeout:
+        return {
+            "success": False,
+            "error": "请求超时，请检查网络连接或稍后重试",
+            "error_code": "REQUEST_TIMEOUT"
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "网络连接失败，请检查网络连接",
+            "error_code": "CONNECTION_ERROR"
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "success": False,
+            "error": f"请求失败: {str(e)}",
+            "error_code": "REQUEST_FAILED"
+        }
     except Exception as e:
         return {
             "success": False,
@@ -286,95 +175,169 @@ def fetch_weather(city: str) -> dict:
         }
 
 
-def count_stream(count: int = 10, interval: float = 0.5) -> Iterator[Dict[str, Any]]:
+def jina_read_url(
+    url: str,
+    include_metadata: bool = True
+) -> dict:
     """
-    流式计数器（演示流式函数的实现）
+    使用 Jina AI 读取 URL 内容
 
-    这是一个流式函数示例，展示如何使用生成器实现实时输出。
-    适用于需要实时反馈的场景，如进度报告、实时数据处理等。
-
-    🌊 流式函数特点：
-    - 使用 Iterator[Dict] 作为返回类型
-    - 使用 yield 逐步返回结果
-    - 在 manifest 中设置 "streaming": true
-    - 客户端通过 SSE (Server-Sent Events) 接收实时数据
+    这个函数使用 Jina Reader API 读取指定 URL 的内容，
+    返回页面的标题、描述、正文内容等信息。
 
     Args:
-        count: 计数总数，默认 10
-        interval: 每次计数的间隔秒数，默认 0.5
+        url: 要读取的 URL 地址
+        include_metadata: 是否包含页面元数据（语言、viewport 等），默认 True
 
-    Yields:
-        dict: SSE 事件数据，包含以下字段：
-            - type: 事件类型 ("start" | "progress" | "done" | "error")
-            - data: 事件数据
-            - metadata: 可选的元数据
+    Returns:
+        包含页面内容的字典，格式如下：
+        {
+            "success": True,
+            "url": "原始URL",
+            "title": "页面标题",
+            "description": "页面描述",
+            "content": "页面正文内容（Markdown 格式）",
+            "published_time": "发布时间",
+            "metadata": {
+                "lang": "语言",
+                "viewport": "视口设置"
+            },
+            "tokens": 使用的 tokens 数
+        }
 
     Examples:
-        >>> for event in count_stream(count=5, interval=0.1):
-        ...     print(event)
-        {"type": "start", "data": {"total": 5}}
-        {"type": "progress", "data": {"current": 1, "total": 5, "percentage": 20}}
-        {"type": "progress", "data": {"current": 2, "total": 5, "percentage": 40}}
-        ...
-        {"type": "done", "data": {"total": 5, "completed": True}}
+        >>> result = jina_read_url(url="https://www.example.com")
+        >>> print(result['title'])
+        'Example Domain'
+
+        >>> result = jina_read_url(url="https://blog.example.com/article", include_metadata=False)
+        >>> print(result['content'])
+        '# Article Title\\n\\nArticle content...'
     """
     try:
-        # 参数验证
-        if count <= 0:
-            yield {
-                "type": "error",
-                "data": "count 必须大于 0",
-                "error_code": "INVALID_COUNT"
-            }
-            return
+        # 从环境变量中获取 API Key
+        api_key = os.environ.get('JINA_API_KEY')
 
-        if interval < 0:
-            yield {
-                "type": "error",
-                "data": "interval 不能为负数",
-                "error_code": "INVALID_INTERVAL"
+        # 验证 API Key
+        if not api_key:
+            return {
+                "success": False,
+                "error": "未配置 JINA_API_KEY，请在平台上配置该密钥",
+                "error_code": "MISSING_API_KEY"
             }
-            return
 
-        # Step 1: 发送开始事件
-        yield {
-            "type": "start",
-            "data": {
-                "total": count,
-                "interval": interval
+        # 验证参数
+        if not url or not isinstance(url, str) or not url.strip():
+            return {
+                "success": False,
+                "error": "url 参数必须是非空字符串",
+                "error_code": "INVALID_URL"
             }
+
+        # 验证 URL 格式
+        url = url.strip()
+        if not url.startswith(('http://', 'https://')):
+            return {
+                "success": False,
+                "error": "url 必须以 http:// 或 https:// 开头",
+                "error_code": "INVALID_URL_FORMAT"
+            }
+
+        # 构建请求 URL
+        reader_url = f"https://r.jina.ai/{url}"
+
+        # 构建请求头
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}"
         }
 
-        # Step 2: 逐步计数并发送进度事件
-        for i in range(1, count + 1):
-            time.sleep(interval)
+        # 发送请求
+        response = requests.get(reader_url, headers=headers, timeout=30)
 
-            percentage = int((i / count) * 100)
-
-            yield {
-                "type": "progress",
-                "data": {
-                    "current": i,
-                    "total": count,
-                    "percentage": percentage,
-                    "message": f"正在计数: {i}/{count}"
-                }
+        # 检查响应状态
+        if response.status_code == 401:
+            return {
+                "success": False,
+                "error": "JINA_API_KEY 无效或已过期",
+                "error_code": "INVALID_API_KEY"
+            }
+        elif response.status_code == 429:
+            return {
+                "success": False,
+                "error": "API 调用频率超限，请稍后重试",
+                "error_code": "RATE_LIMIT_EXCEEDED"
+            }
+        elif response.status_code == 404:
+            return {
+                "success": False,
+                "error": "目标 URL 不存在或无法访问",
+                "error_code": "URL_NOT_FOUND"
+            }
+        elif response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"API 请求失败，状态码: {response.status_code}",
+                "error_code": "API_REQUEST_FAILED",
+                "status_code": response.status_code
             }
 
-        # Step 3: 发送完成事件
-        yield {
-            "type": "done",
-            "data": {
-                "total": count,
-                "completed": True,
-                "message": "计数完成"
+        # 解析响应
+        data = response.json()
+
+        # 检查响应格式
+        if data.get("code") != 200:
+            return {
+                "success": False,
+                "error": f"API 返回错误: {data.get('status', 'Unknown error')}",
+                "error_code": "API_ERROR"
             }
+
+        # 提取内容
+        content_data = data.get("data", {})
+
+        # 构建返回结果
+        result: Dict[str, Any] = {
+            "success": True,
+            "url": content_data.get("url", url),
+            "title": content_data.get("title", ""),
+            "description": content_data.get("description", ""),
+            "content": content_data.get("content", ""),
+            "published_time": content_data.get("publishedTime", ""),
+            "tokens": content_data.get("usage", {}).get("tokens", 0)
         }
 
+        # 可选：添加元数据
+        if include_metadata:
+            result["metadata"] = content_data.get("metadata", {})
+
+        # 可选：添加警告信息
+        if "warning" in content_data:
+            result["warning"] = content_data["warning"]
+
+        return result
+
+    except requests.exceptions.Timeout:
+        return {
+            "success": False,
+            "error": "请求超时，请检查网络连接或稍后重试",
+            "error_code": "REQUEST_TIMEOUT"
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "网络连接失败，请检查网络连接",
+            "error_code": "CONNECTION_ERROR"
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "success": False,
+            "error": f"请求失败: {str(e)}",
+            "error_code": "REQUEST_FAILED"
+        }
     except Exception as e:
-        # 发送错误事件
-        yield {
-            "type": "error",
-            "data": str(e),
+        return {
+            "success": False,
+            "error": str(e),
             "error_code": "UNEXPECTED_ERROR"
         }

@@ -1,185 +1,284 @@
 """
-预制件核心函数测试
+测试预制件核心功能
 
-测试所有暴露给 AI 的函数，确保它们按预期工作。
+测试说明：
+- 这些测试演示了基本的测试结构
+- 实际测试时需要配置 JINA_API_KEY 环境变量
+- 可以使用 mock 来模拟 API 响应
 """
 
 import os
-import shutil
-import tempfile
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.main import add_numbers, echo, fetch_weather, greet, process_text_file
+from src.main import jina_read_url, jina_search
 
 
-class TestBasicFunctions:
-    """测试基础函数"""
+class TestJinaSearch:
+    """测试 jina_search 函数"""
 
-    def test_greet_default(self):
-        """测试默认问候"""
-        result = greet()
-        assert result["success"] is True
-        assert result["message"] == "Hello, World!"
-        assert result["name"] == "World"
-
-    def test_greet_with_name(self):
-        """测试指定名字的问候"""
-        result = greet(name="Alice")
-        assert result["success"] is True
-        assert result["message"] == "Hello, Alice!"
-        assert result["name"] == "Alice"
-
-    def test_greet_invalid(self):
-        """测试无效输入"""
-        result = greet(name="")
-        assert result["success"] is False
-        assert "error_code" in result
-
-    def test_echo(self):
-        """测试回显功能"""
-        result = echo(text="Hello")
-        assert result["success"] is True
-        assert result["echo"] == "Hello"
-        assert result["length"] == 5
-
-    def test_echo_empty(self):
-        """测试空文本"""
-        result = echo(text="")
-        assert result["success"] is False
-        assert result["error_code"] == "EMPTY_TEXT"
-
-    def test_add_numbers(self):
-        """测试数字相加"""
-        result = add_numbers(a=10, b=20)
-        assert result["success"] is True
-        assert result["sum"] == 30
-
-    def test_add_numbers_negative(self):
-        """测试负数"""
-        result = add_numbers(a=-5, b=3)
-        assert result["success"] is True
-        assert result["sum"] == -2
-
-
-class TestFileHandling:
-    """测试文件处理功能"""
-
-    @pytest.fixture
-    def workspace(self):
-        """创建临时工作空间"""
-        temp_dir = tempfile.mkdtemp()
-        workspace_path = Path(temp_dir)
-
-        # 创建目录结构（文件按 manifest key 组织）
-        inputs_dir = workspace_path / "data" / "inputs" / "input"
-        inputs_dir.mkdir(parents=True)
-
-        # 创建测试输入文件
-        test_file = inputs_dir / "test.txt"
-        test_file.write_text("Hello World", encoding="utf-8")
-
-        # 切换到工作空间
-        original_cwd = os.getcwd()
-        os.chdir(workspace_path)
-
-        yield workspace_path
-
-        # 清理
-        os.chdir(original_cwd)
-        shutil.rmtree(temp_dir)
-
-    def test_process_text_file_uppercase(self, workspace):
-        """测试文本转大写"""
-        # 不传入文件参数
-        result = process_text_file(operation="uppercase")
-
-        assert result["success"] is True
-        assert result["operation"] == "uppercase"
-        assert result["original_length"] == 11
-        assert result["processed_length"] == 11
-
-        # 返回值不包含文件路径
-        assert "input_file" not in result
-        assert "output_file" not in result
-
-        # 验证输出文件存在
-        output_files = list((workspace / "data/outputs").glob("*"))
-        assert len(output_files) == 1
-        assert output_files[0].read_text(encoding="utf-8") == "HELLO WORLD"
-
-    def test_process_text_file_lowercase(self, workspace):
-        """测试文本转小写"""
-        result = process_text_file(operation="lowercase")
-
-        assert result["success"] is True
-        assert result["operation"] == "lowercase"
-
-        output_files = list((workspace / "data/outputs").glob("*"))
-        assert len(output_files) == 1
-        assert output_files[0].read_text(encoding="utf-8") == "hello world"
-
-    def test_process_text_file_reverse(self, workspace):
-        """测试文本反转"""
-        result = process_text_file(operation="reverse")
-
-        assert result["success"] is True
-        assert result["operation"] == "reverse"
-
-        output_files = list((workspace / "data/outputs").glob("*"))
-        assert len(output_files) == 1
-        assert output_files[0].read_text(encoding="utf-8") == "dlroW olleH"
-
-    def test_process_text_file_no_input(self, workspace):
-        """测试没有输入文件"""
-        # 删除所有输入文件
-        for f in (workspace / "data" / "inputs" / "input").glob("*"):
-            f.unlink()
-
-        result = process_text_file(operation="uppercase")
-
-        assert result["success"] is False
-        assert result["error_code"] == "NO_INPUT_FILE"
-
-    def test_process_text_file_invalid_operation(self, workspace):
-        """测试无效操作"""
-        result = process_text_file(operation="invalid")
-
-        assert result["success"] is False
-        assert result["error_code"] == "INVALID_OPERATION"
-
-
-class TestSecretsHandling:
-    """测试密钥处理"""
-
-    def test_fetch_weather_success(self, monkeypatch):
-        """测试正常调用（有 API Key）"""
-        # 设置环境变量
-        monkeypatch.setenv("WEATHER_API_KEY", "test-api-key")
-
-        result = fetch_weather(city="北京")
-
-        assert result["success"] is True
-        assert result["city"] == "北京"
-        assert "temperature" in result
-        assert "condition" in result
-
-    def test_fetch_weather_missing_key(self, monkeypatch):
-        """测试缺少 API Key"""
-        # 确保环境变量不存在
-        monkeypatch.delenv("WEATHER_API_KEY", raising=False)
-
-        result = fetch_weather(city="北京")
+    def test_search_missing_api_key(self):
+        """测试缺少 API Key 的情况"""
+        # 确保环境变量中没有 API Key
+        with patch.dict(os.environ, {}, clear=True):
+            result = jina_search(query="test")
 
         assert result["success"] is False
         assert result["error_code"] == "MISSING_API_KEY"
 
-    def test_fetch_weather_invalid_city(self, monkeypatch):
-        """测试无效城市"""
-        monkeypatch.setenv("WEATHER_API_KEY", "test-api-key")
+    def test_search_invalid_query(self):
+        """测试无效的查询参数"""
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            # 空字符串
+            result = jina_search(query="")
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_QUERY"
 
-        result = fetch_weather(city="")
+            # 只有空格
+            result = jina_search(query="   ")
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_QUERY"
+
+    def test_search_invalid_max_results(self):
+        """测试无效的 max_results 参数"""
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            # 零
+            result = jina_search(query="test", max_results=0)
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_MAX_RESULTS"
+
+            # 负数
+            result = jina_search(query="test", max_results=-1)
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_MAX_RESULTS"
+
+    @patch("src.main.requests.get")
+    def test_search_success(self, mock_get):
+        """测试成功的搜索请求"""
+        # 模拟成功的 API 响应
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 200,
+            "status": 20000,
+            "data": [
+                {
+                    "title": "Test Title",
+                    "url": "https://example.com",
+                    "description": "Test description",
+                    "content": ""
+                }
+            ],
+            "meta": {
+                "usage": {
+                    "tokens": 100
+                }
+            }
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_search(query="test query")
+
+        assert result["success"] is True
+        assert result["query"] == "test query"
+        assert len(result["results"]) == 1
+        assert result["results"][0]["title"] == "Test Title"
+        assert result["total_tokens"] == 100
+
+    @patch("src.main.requests.get")
+    def test_search_with_content(self, mock_get):
+        """测试包含内容的搜索请求"""
+        # 模拟成功的 API 响应
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 200,
+            "status": 20000,
+            "data": [
+                {
+                    "title": "Test Title",
+                    "url": "https://example.com",
+                    "description": "Test description",
+                    "content": "Test content"
+                }
+            ],
+            "meta": {
+                "usage": {
+                    "tokens": 200
+                }
+            }
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_search(query="test", include_content=True)
+
+        assert result["success"] is True
+        assert result["results"][0]["content"] == "Test content"
+
+    @patch("src.main.requests.get")
+    def test_search_rate_limit(self, mock_get):
+        """测试 API 频率限制"""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_search(query="test")
 
         assert result["success"] is False
-        assert result["error_code"] == "INVALID_CITY"
+        assert result["error_code"] == "RATE_LIMIT_EXCEEDED"
+
+    @patch("src.main.requests.get")
+    def test_search_invalid_api_key(self, mock_get):
+        """测试无效的 API Key"""
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "invalid_key"}):
+            result = jina_search(query="test")
+
+        assert result["success"] is False
+        assert result["error_code"] == "INVALID_API_KEY"
+
+
+class TestJinaReadUrl:
+    """测试 jina_read_url 函数"""
+
+    def test_read_url_missing_api_key(self):
+        """测试缺少 API Key 的情况"""
+        with patch.dict(os.environ, {}, clear=True):
+            result = jina_read_url(url="https://example.com")
+
+        assert result["success"] is False
+        assert result["error_code"] == "MISSING_API_KEY"
+
+    def test_read_url_invalid_url(self):
+        """测试无效的 URL"""
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            # 空字符串
+            result = jina_read_url(url="")
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_URL"
+
+            # 只有空格
+            result = jina_read_url(url="   ")
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_URL"
+
+            # 缺少协议
+            result = jina_read_url(url="example.com")
+            assert result["success"] is False
+            assert result["error_code"] == "INVALID_URL_FORMAT"
+
+    @patch("src.main.requests.get")
+    def test_read_url_success(self, mock_get):
+        """测试成功读取 URL"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 200,
+            "status": 20000,
+            "data": {
+                "title": "Example Domain",
+                "description": "Example description",
+                "url": "https://www.example.com/",
+                "content": "Example content",
+                "publishedTime": "Thu, 09 Oct 2025 16:42:02 GMT",
+                "metadata": {
+                    "lang": "en",
+                    "viewport": "width=device-width, initial-scale=1"
+                },
+                "usage": {
+                    "tokens": 29
+                }
+            },
+            "meta": {
+                "usage": {
+                    "tokens": 29
+                }
+            }
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_read_url(url="https://www.example.com")
+
+        assert result["success"] is True
+        assert result["title"] == "Example Domain"
+        assert result["content"] == "Example content"
+        assert result["tokens"] == 29
+        assert "metadata" in result
+        assert result["metadata"]["lang"] == "en"
+
+    @patch("src.main.requests.get")
+    def test_read_url_without_metadata(self, mock_get):
+        """测试不包含元数据的请求"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 200,
+            "status": 20000,
+            "data": {
+                "title": "Example Domain",
+                "description": "",
+                "url": "https://www.example.com/",
+                "content": "Example content",
+                "publishedTime": "",
+                "metadata": {
+                    "lang": "en"
+                },
+                "usage": {
+                    "tokens": 29
+                }
+            }
+        }
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_read_url(url="https://www.example.com", include_metadata=False)
+
+        assert result["success"] is True
+        assert "metadata" not in result
+
+    @patch("src.main.requests.get")
+    def test_read_url_not_found(self, mock_get):
+        """测试 URL 不存在"""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_read_url(url="https://example.com/notfound")
+
+        assert result["success"] is False
+        assert result["error_code"] == "URL_NOT_FOUND"
+
+    @patch("src.main.requests.get")
+    def test_read_url_rate_limit(self, mock_get):
+        """测试 API 频率限制"""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "test_key"}):
+            result = jina_read_url(url="https://example.com")
+
+        assert result["success"] is False
+        assert result["error_code"] == "RATE_LIMIT_EXCEEDED"
+
+    @patch("src.main.requests.get")
+    def test_read_url_invalid_api_key(self, mock_get):
+        """测试无效的 API Key"""
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_get.return_value = mock_response
+
+        with patch.dict(os.environ, {"JINA_API_KEY": "invalid_key"}):
+            result = jina_read_url(url="https://example.com")
+
+        assert result["success"] is False
+        assert result["error_code"] == "INVALID_API_KEY"
